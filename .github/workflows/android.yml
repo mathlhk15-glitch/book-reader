@@ -1,57 +1,41 @@
+
 name: Android debug APK
+
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - run: gradle --no-daemon assembleDebug
-      - uses: actions/upload-artifact@v4
+
+      - name: Build Debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: QReader-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-
-  signed-release:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-      - name: Check signing secrets
-        env:
-          STORE_B64: ${{ secrets.QREADER_KEYSTORE_BASE64 }}
-          STORE_PASS: ${{ secrets.QREADER_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.QREADER_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.QREADER_KEY_PASSWORD }}
-        run: |
-          test -n "$STORE_B64" && test -n "$STORE_PASS" && test -n "$KEY_ALIAS" && test -n "$KEY_PASS" || { echo 'Configure signing secrets first'; exit 1; }
-          printf '%s' "$STORE_B64" | base64 --decode > "$RUNNER_TEMP/qreader.jks"
-      - name: Assemble signed release
-        env:
-          QREADER_KEYSTORE: ${{ runner.temp }}/qreader.jks
-          QREADER_STORE_PASSWORD: ${{ secrets.QREADER_STORE_PASSWORD }}
-          QREADER_KEY_ALIAS: ${{ secrets.QREADER_KEY_ALIAS }}
-          QREADER_KEY_PASSWORD: ${{ secrets.QREADER_KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease
-      - uses: actions/upload-artifact@v4
-        with:
-          name: QReader-signed-release
-          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
