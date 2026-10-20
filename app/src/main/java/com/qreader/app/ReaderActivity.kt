@@ -175,7 +175,7 @@ class ReaderActivity : Activity() {
             setTextIsSelectable(false)
             setOnLongClickListener {readingOffset=offsetForScroll();latestTtsOffset=0;startTts();true}
         }
-        scroll.addView(text,ScrollView.LayoutParams(-1,-2))
+        scroll.addView(text, android.widget.FrameLayout.LayoutParams(-1, -2))
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         seek=SeekBar(this).apply {
             max=10000
