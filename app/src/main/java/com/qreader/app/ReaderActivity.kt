@@ -67,13 +67,15 @@ class ReaderActivity : Activity() {
     private var lastFrameTime = 0L
     private var hasCustomFont = false
     private var gestureRemainder = 0f
+    private var cachedCustomFont: Typeface? = null
+    private var currentOpenRequest = 0
     private var fontFamilies = arrayOf("시스템 기본", "명조 (Serif)", "고딕 (Sans)", "고정폭 (Mono)", "사용자 TTF/OTF 글꼴")
     private fun dp(value:Int)=(value*resources.displayMetrics.density+.5f).toInt()
     private fun fontTypeface(index:Int): Typeface = when(index) {
         1 -> Typeface.create("serif",Typeface.NORMAL)
         2 -> Typeface.create("sans-serif",Typeface.NORMAL)
         3 -> Typeface.create("monospace",Typeface.NORMAL)
-        4 -> runCatching { Typeface.createFromFile(File(filesDir,"reader-custom-font")) }.getOrDefault(Typeface.DEFAULT)
+        4 -> cachedCustomFont ?: runCatching { Typeface.createFromFile(File(filesDir,"reader-custom-font")) }.getOrDefault(Typeface.DEFAULT).also { cachedCustomFont = it }
         else -> Typeface.DEFAULT
     }
     private fun applyTypography() {
@@ -219,6 +221,7 @@ class ReaderActivity : Activity() {
     }
     private fun applyBrightness() {window.attributes=window.attributes.apply {screenBrightness=brightnessValue}}
     private fun openUri(uri:Uri) {
+        val request = ++currentOpenRequest
         openedUri=uri
         try {contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)} catch(_:Exception) {}
         docTitle=fileName(uri)
@@ -234,8 +237,11 @@ class ReaderActivity : Activity() {
                     "jpg","jpeg","png","webp" -> null
                     else -> decodeBytes(readLimited(uri,16*1024*1024))
                 }
-                if(result==null) { runOnUiThread {recognizeImage(uri)} }
-                else runOnUiThread {display(result,uri.toString())}
+                if(result==null) { runOnUiThread {if(request==currentOpenRequest) recognizeImage(uri)} }
+                else {
+                    val stableId = "content:" + sha256Text(result)
+                    runOnUiThread {if(request==currentOpenRequest) display(result,stableId,uri.toString())}
+                }
             } catch(ex:Exception) {runOnUiThread {error("파일 열기 실패: ${ex.message}")}}
         }
     }
@@ -334,16 +340,28 @@ class ReaderActivity : Activity() {
         val sorted=entries.sortedBy {it.first.replace(Regex("\\d+")){m->m.value.padStart(12,'0')} }
         return sorted.joinToString("\n\n") {"\n\n──────── ${it.first} ────────\n\n${it.second}"}
     }
-    private fun display(body:String,key:String) {
+    private fun display(body:String,key:String, legacyKey:String?=null) {
         if(ttsPlaying) pauseTts()
         latestTtsOffset=0
-        raw=body;docKey=key;readingOffset=prefs.getInt("pos_${digest(key)}",0).coerceIn(0,raw.length)
+        raw=body;docKey=key
+        val newPositionKey="pos_${digest(key)}"
+        val oldPositionKey=legacyKey?.let { "pos_${digest(it)}" }
+        if (!prefs.contains(newPositionKey) && oldPositionKey!=null && prefs.contains(oldPositionKey)) {
+            val edit=prefs.edit().putInt(newPositionKey,prefs.getInt(oldPositionKey,0))
+            val oldBookmarks="bookmark_${digest(legacyKey!!)}"
+            val newBookmarks="bookmark_${digest(key)}"
+            if (!prefs.contains(newBookmarks) && prefs.contains(oldBookmarks)) edit.putString(newBookmarks,prefs.getString(oldBookmarks,""))
+            edit.apply()
+        }
+        readingOffset=prefs.getInt(newPositionKey,0).coerceIn(0,raw.length)
         header.text="$docTitle · ${raw.length}자"
         text.text=raw
         applyTypography()
         text.post { jumpTo(readingOffset,false) }
         refreshFooter()
     }
+    private fun sha256Text(s:String):String = MessageDigest.getInstance("SHA-256")
+        .digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     private fun digest(s:String):String = MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).take(12).joinToString(""){"%02x".format(it)}
     private fun offsetForScroll():Int {
         if(raw.isEmpty()||text.layout==null)return 0
@@ -601,8 +619,22 @@ class ReaderActivity : Activity() {
                     contentResolver.openInputStream(uri)?.use { input->
                         staged.outputStream().use{out->val buf=ByteArray(8192);var size=0L;while(true){val n=input.read(buf);if(n<0)break;size+=n;if(size>15L*1024*1024)throw IOException("글꼴 파일은 15MB 이하여야 합니다");out.write(buf,0,n)}}
                     } ?: throw IOException("파일을 열 수 없습니다")
-                    Typeface.createFromFile(staged)
-                    staged.copyTo(dest,overwrite=true)
+                    // Reject malformed SFNT headers before asking the OS to load the font.
+                    val magic=staged.inputStream().use { inp -> ByteArray(4).also { if(inp.read(it)!=4) throw IOException("글꼴 헤더가 없습니다") } }
+                    val signature=magic.joinToString("") { "%02x".format(it.toInt() and 255) }
+                    if(signature !in setOf("00010000","4f54544f","74727565","74746366")) throw IOException("올바른 TTF/OTF 글꼴이 아닙니다")
+                    val checked=Typeface.createFromFile(staged)
+                    val replacement=File(filesDir,"reader-custom-font.new")
+                    staged.copyTo(replacement,overwrite=true)
+                    if(!replacement.renameTo(dest)) {
+                        val backup=File(filesDir,"reader-custom-font.bak")
+                        if(dest.exists()) dest.copyTo(backup,overwrite=true)
+                        try { replacement.copyTo(dest,overwrite=true) } catch(ex:Exception) {
+                            if(backup.exists()) backup.copyTo(dest,overwrite=true)
+                            throw ex
+                        } finally { replacement.delete();backup.delete() }
+                    }
+                    cachedCustomFont=checked
                 } finally { staged.delete() }
                 runOnUiThread{prefs.edit().putInt("font_family",4).apply();applyTypography();toast("사용자 글꼴이 적용되었습니다")}
             }catch(ex:Exception){runOnUiThread{error("글꼴 불러오기 실패: ${ex.message}")}}

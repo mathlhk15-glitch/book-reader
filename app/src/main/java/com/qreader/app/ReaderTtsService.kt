@@ -50,11 +50,16 @@ class ReaderTtsService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         timerAt=getSharedPreferences("qreader",MODE_PRIVATE).getLong("sleep_timer_at",0L)
+        if(timerAt>0L && timerAt<=System.currentTimeMillis()) clearSleepTimer()
         val channel = NotificationChannel(CHANNEL, "소설 읽어주기", NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         registerReceiver(noisyReceiver,IntentFilter(ACTION_AUDIO_BECOMING_NOISY))
         tts = TextToSpeech(this, this)
+    }
+    private fun clearSleepTimer(){
+        timerAt=0L
+        getSharedPreferences("qreader",MODE_PRIVATE).edit().putLong("sleep_timer_at",0L).apply()
     }
     override fun onInit(status: Int) {
         ready = status == TextToSpeech.SUCCESS
@@ -75,14 +80,14 @@ class ReaderTtsService : Service(), TextToSpeech.OnInitListener {
         val completedIndex = parts[1].toIntOrNull() ?: return
         handler.post {
             if (g != generation.get() || !speaking || completedIndex != index) return@post
-            if (timerAt > 0 && System.currentTimeMillis() >= timerAt) { timerAt=0L; getSharedPreferences("qreader",MODE_PRIVATE).edit().putLong("sleep_timer_at",0L).apply(); pause(); return@post }
+            if (timerAt > 0 && System.currentTimeMillis() >= timerAt) { clearSleepTimer(); pause(); return@post }
             if (index < sentences.lastIndex) { index++; speakNow() } else { pause() }
         }
     }
     private fun segments(s: String): List<Pair<Int,String>> {
         // Preserve source offsets while capping utterances below Android TTS input limits.
         val out = mutableListOf<Pair<Int,String>>()
-        val boundary = Regex("(?<=[.!?。！？])\\s+|\\n+")
+        val boundary = Regex("(?<=[.!?。！？…])(?:[\"”’]?\\s+)|\\n+")
         var start = 0
         for (m in boundary.findAll(s)) {
             val part = s.substring(start, m.range.first)
@@ -103,7 +108,7 @@ class ReaderTtsService : Service(), TextToSpeech.OnInitListener {
     }
     private fun filtered(raw: String): String {
         val prefs = getSharedPreferences("qreader", MODE_PRIVATE)
-        var s = raw.replace(Regex("[ㅋㅎ]{3,}"), " ").replace(Regex("[=*_~]{4,}"), " ")
+        var s = raw.replace(Regex("[ㅋㅎ]{3,}"), " ").replace(Regex("[=*_~]{4,}"), " ").replace(Regex("[.…]{4,}"), "… ")
         if (!prefs.getBoolean("read_latin", true)) s = s.replace(Regex("[A-Za-z]+"), " ")
         if (!prefs.getBoolean("read_hanja", true)) s = s.replace(Regex("[\\u3400-\\u9FFF]+"), " ")
         if (!prefs.getBoolean("read_japanese", true)) s = s.replace(Regex("[\\u3040-\\u30FF]+"), " ")
@@ -122,7 +127,7 @@ class ReaderTtsService : Service(), TextToSpeech.OnInitListener {
         val g = generation.get()
         val spoken = filtered(pair.second)
         if (spoken.isBlank()) { handler.post { advance("$g:$index") }; return }
-        if(timerAt>0 && System.currentTimeMillis()>=timerAt){timerAt=0L;getSharedPreferences("qreader",MODE_PRIVATE).edit().putLong("sleep_timer_at",0L).apply();pause();return}
+        if(timerAt>0 && System.currentTimeMillis()>=timerAt){clearSleepTimer();pause();return}
         val prefs = getSharedPreferences("qreader", MODE_PRIVATE)
         tts?.setSpeechRate(prefs.getFloat("tts_rate",1f))
         tts?.setPitch(prefs.getFloat("tts_pitch",1f))
@@ -228,7 +233,7 @@ class ReaderTtsService : Service(), TextToSpeech.OnInitListener {
             ACTION_PAUSE -> pause()
             ACTION_NEXT -> skip(1)
             ACTION_PREV -> skip(-1)
-            ACTION_STOP -> { pause(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            ACTION_STOP -> { clearSleepTimer();pause(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
         }
         return START_NOT_STICKY
     }

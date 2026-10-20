@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
     namespace = "com.qreader.app"
     compileSdk = 35
-    defaultConfig { applicationId = "com.qreader.app"; minSdk = 26; targetSdk = 35; versionCode = 4; versionName = "0.4.0-alpha" }
+    defaultConfig { applicationId = "com.qreader.app"; minSdk = 26; targetSdk = 35; versionCode = 5; versionName = "0.5.0-alpha" }
     signingConfigs {
         create("personalRelease") {
             val store = System.getenv("QREADER_KEYSTORE")

@@ -54,3 +54,13 @@ GitHub Secrets: `QREADER_KEYSTORE_BASE64`, `QREADER_STORE_PASSWORD`, `QREADER_KE
 - Existing document picker attempts persistable URI grants; shared URI grants are not universally persistent.
 
 Unverified: Android Gradle compile, real-device background playback and OEM battery behavior. Not yet implemented: scalable chapter-based rendering, full MediaSession, OCR edit persistence and robust partial-image OCR deduplication.
+
+
+## v0.5-alpha (안정화) 변경
+- 타이머가 서비스 재시작 전에 만료되었으면 만료 정보를 삭제하며, TTS 완전 종료 시 타이머 상태를 해제합니다.
+- TXT/ZIP 본문 SHA-256 내용 식별자로 진도와 책갈피를 연결합니다. v0.4의 URI 기반 기록이 있으면 최초 열기 시 이전 기록을 옮깁니다. OCR의 현재 기록은 별도 구형 식별자를 유지하며, 이후 확장 예정입니다.
+- 잘못된 TTF/OTF의 SFNT 헤더를 검사하고 교체 전에 임시 파일을 검증합니다. 글꼴 선택과 12~54sp 글자 크기 조절은 유지합니다.
+- TTS 대화문 끝 따옴표/말줄임표 처리와 반복 구분 기호 정제를 보완했습니다.
+- 빠르게 여러 파일을 열었을 때 이전 파일의 늦은 로딩 결과가 현재 파일을 덮어쓰지 않도록 로딩 요청 번호를 확인합니다.
+- **중요:** 전체 본문 TextView 구조, 긴 캡처 OCR, 완전한 MediaSession, 공유 URI 장기 권한 처리와 앱 내 수동 백업은 아직 구현하지 못했습니다. 실제 APK 빌드/실기기 검증 미완료.
+- GitHub에 업로드할 때 ZIP 내부 파일들이 저장소 루트에 직접 놓이도록 구성하였습니다. `.github/workflows`가 루트에 있어야 합니다.
